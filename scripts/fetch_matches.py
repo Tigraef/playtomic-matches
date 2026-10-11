@@ -13,7 +13,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-API = "https://api.playtomic.io"
+# Der alte Host api.playtomic.io ist abgeschaltet.
+API = "https://api.app.playtomic.io"
 ARCHIVE = Path(__file__).resolve().parent.parent / "data" / "matches.json"
 PAGE_SIZE = 50
 MAX_PAGES = 200
@@ -38,7 +39,7 @@ def request(method, path, token=None, params=None, body=None):
             return json.load(resp)
     except urllib.error.HTTPError as e:
         snippet = e.read().decode(errors="replace")[:500]
-        sys.exit(f"HTTP {e.code} bei {method} {path}: {snippet}")
+        raise RuntimeError(f"HTTP {e.code} bei {method} {path}: {snippet}") from None
 
 
 def login(email, password):
@@ -50,11 +51,11 @@ def login(email, password):
     return token, str(user_id)
 
 
-def fetch_matches(token, user_id):
+def fetch_matches(token, user_id, filter_param):
     matches = []
     for page in range(MAX_PAGES):
         res = request("GET", "/v1/matches", token, {
-            "user_id": user_id,
+            filter_param: user_id,
             "sort": "start_date,DESC",
             "page": page,
             "size": PAGE_SIZE,
@@ -77,9 +78,26 @@ def main():
     if not email or not password:
         sys.exit("PLAYTOMIC_EMAIL und PLAYTOMIC_PASSWORD müssen gesetzt sein.")
 
-    token, user_id = login(email, password)
-    fetched = fetch_matches(token, user_id)
-    print(f"{len(fetched)} Matches von Playtomic geladen.")
+    try:
+        token, user_id = login(email, password)
+    except RuntimeError as e:
+        sys.exit(f"Login fehlgeschlagen: {e}")
+
+    # Unklar, welcher Filter alle eigenen Matches liefert, daher beide abfragen
+    fetched, errors = [], []
+    for param in ("player_user_id", "user_id"):
+        try:
+            found = fetch_matches(token, user_id, param)
+        except RuntimeError as e:
+            errors.append(f"{param}: {e}")
+            continue
+        print(f"Filter {param}: {len(found)} Matches.")
+        fetched.extend(found)
+    if errors and not fetched:
+        sys.exit("Abruf fehlgeschlagen:\n" + "\n".join(errors))
+    for err in errors:
+        print(f"Warnung: {err}")
+    print(f"{len({match_id(m) for m in fetched})} verschiedene Matches von Playtomic geladen.")
     if fetched:
         print(f"Felder eines Matches: {sorted(fetched[0])}")
 
