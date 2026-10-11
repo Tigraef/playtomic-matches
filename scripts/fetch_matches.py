@@ -52,7 +52,11 @@ def request(method, path, token=None, params=None, body=None):
 
 
 def login(email, password):
-    res = request("POST", "/v3/auth/login", body={"email": email, "password": password})
+    res = request("POST", "/v3/auth/login", body={
+        "email": email,
+        "password": password,
+        "requested_user_roles": ["ROLE_CUSTOMER"],  # sonst INVALID_TOKEN_SCOPE
+    })
     token = res.get("access_token")
     user_id = res.get("user_id")
     if not token or not user_id:
