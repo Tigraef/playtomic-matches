@@ -21,7 +21,11 @@ MAX_PAGES = 200
 HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "playtomic-matches-archive/1.0",
+    # CloudFront blockt unbekannte User-Agents, daher wie die Web-App auftreten
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+    "Origin": "https://app.playtomic.io",
+    "Referer": "https://app.playtomic.io/",
+    "X-Requested-With": "com.playtomic.web",
 }
 
 
