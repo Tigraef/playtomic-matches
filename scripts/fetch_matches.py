@@ -2,11 +2,14 @@
 """Holt die eigenen Playtomic-Matches und führt sie mit data/matches.json zusammen.
 
 Nutzt die inoffizielle Playtomic-API. Zugangsdaten kommen aus den
-Umgebungsvariablen PLAYTOMIC_EMAIL und PLAYTOMIC_PASSWORD.
+Umgebungsvariablen PLAYTOMIC_EMAIL und PLAYTOMIC_PASSWORD oder aus einer
+.env-Datei im Repo-Wurzelverzeichnis. Mit --push werden Änderungen direkt
+committet und gepusht.
 Bereits gesicherte Matches werden nie gelöscht, nur aktualisiert.
 """
 import json
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -15,7 +18,9 @@ from pathlib import Path
 
 # Der alte Host api.playtomic.io ist abgeschaltet.
 API = "https://api.app.playtomic.io"
-ARCHIVE = Path(__file__).resolve().parent.parent / "data" / "matches.json"
+ROOT = Path(__file__).resolve().parent.parent
+ARCHIVE = ROOT / "data" / "matches.json"
+ENV_FILE = ROOT / ".env"
 PAGE_SIZE = 50
 MAX_PAGES = 200
 HEADERS = {
@@ -76,11 +81,35 @@ def match_id(m):
     return str(m.get("match_id") or m.get("id"))
 
 
+def load_env_file():
+    if not ENV_FILE.exists():
+        return
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and not key.strip().startswith("#"):
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def git(*args):
+    return subprocess.run(["git", *args], cwd=ROOT, check=True, capture_output=True, text=True)
+
+
+def commit_and_push():
+    git("add", str(ARCHIVE.relative_to(ROOT)))
+    if not git("status", "--porcelain", "--", str(ARCHIVE.relative_to(ROOT))).stdout.strip():
+        print("Keine Änderungen, nichts zu pushen.")
+        return
+    git("commit", "-m", "Matches aktualisiert")
+    git("push")
+    print("Änderungen committet und gepusht.")
+
+
 def main():
+    load_env_file()
     email = os.environ.get("PLAYTOMIC_EMAIL")
     password = os.environ.get("PLAYTOMIC_PASSWORD")
     if not email or not password:
-        sys.exit("PLAYTOMIC_EMAIL und PLAYTOMIC_PASSWORD müssen gesetzt sein.")
+        sys.exit(f"PLAYTOMIC_EMAIL und PLAYTOMIC_PASSWORD fehlen (in {ENV_FILE} eintragen).")
 
     try:
         token, user_id = login(email, password)
@@ -105,7 +134,7 @@ def main():
     if fetched:
         print(f"Felder eines Matches: {sorted(fetched[0])}")
 
-    archive = json.loads(ARCHIVE.read_text()) if ARCHIVE.exists() else []
+    archive = json.loads(ARCHIVE.read_text(encoding="utf-8")) if ARCHIVE.exists() else []
     by_id = {match_id(m): m for m in archive}
     before = len(by_id)
     for m in fetched:
@@ -113,8 +142,14 @@ def main():
 
     merged = sorted(by_id.values(), key=lambda m: m.get("start_date") or "", reverse=True)
     ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
-    ARCHIVE.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n")
+    ARCHIVE.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Archiv: {before} -> {len(merged)} Matches.")
+
+    if "--push" in sys.argv[1:]:
+        try:
+            commit_and_push()
+        except subprocess.CalledProcessError as e:
+            sys.exit(f"git {' '.join(e.cmd[1:])} fehlgeschlagen: {e.stderr.strip()}")
 
 
 if __name__ == "__main__":
